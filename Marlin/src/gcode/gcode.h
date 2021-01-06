@@ -555,6 +555,7 @@ private:
   TERN_(Z_MIN_PROBE_REPEATABILITY_TEST, static void M48());
 
   TERN_(LCD_SET_PROGRESS_MANUALLY, static void M73());
+  TERN_(DWIN_CREALITY_LCD, static void M73());
 
   static void M75();
   static void M76();
