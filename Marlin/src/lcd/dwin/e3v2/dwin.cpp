@@ -725,7 +725,10 @@ inline void Item_Prepare_Lang(const uint8_t row) {
   }
   Draw_Menu_Icon(row, ICON_Language);
 }
-
+inline void Prepare_Item_FilaChange(const uint8_t row) {//TODO:Verify this image is good
+	DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(row), (char*)"Change Filament");
+    Draw_Menu_Line(row, ICON_MoveX + 3);
+}
 inline void Draw_Prepare_Menu() {
   Clear_Main_Window();
 
@@ -1325,7 +1328,45 @@ void HMI_Move_Z() {
 #if HAS_ZOFFSET_ITEM
 
   bool printer_busy() { return planner.movesplanned() || printingIsActive(); }
-
+  void HMI_live_Zoffset(void) {
+  ENCODER_DiffState encoder_diffState = Encoder_ReceiveAnalyze();
+  if (encoder_diffState != ENCODER_DIFF_NO) {
+    if (encoder_diffState == ENCODER_DIFF_CW) {
+	  #if ENABLED(BABYSTEPPING)
+	  HMI_ValueStruct.offset_value++;
+	  if (HMI_ValueStruct.offset_value > -1 && HMI_ValueStruct.offset_value  < 1){
+		HMI_ValueStruct.offset_value++;
+	  }
+	  DWIN_Draw_Signed_Float(font8x16, Select_Color, 2, 2, 202, MBASE(5 + MROWS - index_tune), HMI_ValueStruct.offset_value);
+	  babystep.add_mm(Z_AXIS, (0.01));
+	  #endif
+	  delay(125);
+    }
+    else if (encoder_diffState == ENCODER_DIFF_CCW) {
+	  #if ENABLED(BABYSTEPPING)
+	  HMI_ValueStruct.offset_value--;
+	  if (HMI_ValueStruct.offset_value > -1 && HMI_ValueStruct.offset_value  < 1){
+		HMI_ValueStruct.offset_value--;
+	  }
+	  DWIN_Draw_Signed_Float(font8x16, Select_Color, 2, 2, 202, MBASE(5 + MROWS - index_tune), HMI_ValueStruct.offset_value);
+	  babystep.add_mm(Z_AXIS, (-0.01));
+	  #endif
+	  delay(125);
+    }
+    else if (encoder_diffState == ENCODER_DIFF_ENTER) {
+	  EncoderRate.enabled = 0;
+      checkkey = Tune;
+	  #if HAS_BED_PROBE
+	  probe.offset.z = HMI_ValueStruct.offset_value/100;
+	  DWIN_Draw_Signed_Float(STAT_FONT, Background_black, 2, 2, 178 + STAT_CHR_W, 402, probe.offset.z * 100);
+	  #endif
+	  settings.save();
+      DWIN_UpdateLCD();
+      return;
+    }
+    DWIN_UpdateLCD();
+  }
+}
   void HMI_Zoffset() {
     ENCODER_DiffState encoder_diffState = Encoder_ReceiveAnalyze();
     if (encoder_diffState != ENCODER_DIFF_NO) {
@@ -1597,6 +1638,35 @@ void HMI_StepXYZE() {
     DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 3, 1, 210, MBASE(select_step.now), HMI_ValueStruct.Max_Step);
   }
 }
+void external_print_tune(void) {
+	if (print_job_timer.duration() > 1 && ExtPrint_flag == 0) {
+	  ExtPrint_flag = 2;
+	  //checkkey = Tune;
+    //  HMI_ValueStruct.show_mode = 0;
+    //  select_tune.now = 1;
+    //  index_tune = 5;
+    //Draw_Tune_Menu();
+    //Draw_Printing_Screen();
+    Goto_PrintProcess();
+
+	}
+	
+	if (print_job_timer.duration() < 2 && ExtPrint_flag == 2){
+	  ExtPrint_flag = 0;
+	  select_page.set(3);
+      Goto_MainMenu();
+    }
+	
+	if (ExtPrint_flag == 5){//Printing finished, reset the timer to 0 then stop it so ExtPrintFlag becomes 0
+		if (print_job_timer.duration() > 0){
+			  queue.inject_P(PSTR("M77\nM75\nM77"));
+			  delay(20);
+		}
+		else {
+		  ExtPrint_flag = 0; //TODO: Not quite sure why this isn't included above
+		}
+	}
+}
 
 void update_variable() {
   #if HAS_HOTEND
@@ -1677,6 +1747,19 @@ void update_variable() {
       last_zoffset = BABY_Z_VAR;
     }
   #endif
+ // Bottom Axis update
+  if (last_X_scale != current_position[X_AXIS]) {
+    DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 37,  444, current_position.x * MINUNITMULT); //x
+    last_X_scale = current_position[X_AXIS];
+  }
+  if (last_Y_scale != current_position[Y_AXIS]) {
+    DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 134, 444, current_position.y * MINUNITMULT); //y
+    last_Y_scale = current_position[Y_AXIS];
+  }
+  if (last_Z_scale != current_position[Z_AXIS]) { 
+    DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 220, 444, current_position.z * MINUNITMULT); //z
+    last_Z_scale = current_position[Z_AXIS];
+  }
 }
 
 /**
@@ -1901,6 +1984,14 @@ void Draw_Status_Area(const bool with_update) {
     DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 2, 2, 178, 429, dwin_zoffset * 100);
   #endif
 
+  //TODO: Do these all line up?
+  DWIN_ICON_Show(ICON, ICON_MaxSpeedX,   13, 441);
+  DWIN_ICON_Show(ICON, ICON_MaxSpeedY,   110, 441);
+  DWIN_ICON_Show(ICON, ICON_MaxSpeedZ,   196, 441);
+  DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 37,  444, current_position.x * MINUNITMULT); //x
+  DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 134, 444, current_position.y * MINUNITMULT); //y
+  DWIN_Draw_Signed_Float(DWIN_FONT_STAT, Color_Bg_Black, 3, 1, 220, 444, current_position.z * MINUNITMULT); //z
+
   if (with_update) {
     DWIN_UpdateLCD();
     delay(5);
@@ -2103,6 +2194,8 @@ void HMI_SelectFile() {
     if (select_file.now == 0) { // Back
       select_page.set(0);
       Goto_MainMenu();
+	  //reset flag
+	  ExtPrint_flag = 5;
     }
     else if (hasUpDir && select_file.now == 1) { // CD-Up
       SDCard_Up();
@@ -2211,9 +2304,14 @@ void HMI_Printing() {
               if (temphot) sprintf_P(&cmd[strlen(cmd)], PSTR("M109 S%i\n"), temphot);
             #endif
           #endif
-
-          strcat_P(cmd, M24_STR);
-          queue.inject(cmd);
+          if(ExtPrint_flag==2){
+	            queue.inject_P(PSTR("M75"));
+              queue.inject_P(PSTR("M118 A1 action:resume")); //resume in Octoprint, https://docs.octoprint.org/en/master/features/atcommands.html
+	          }
+	          else{
+	            strcat_P(cmd, M24_STR);
+	            queue.inject(cmd);
+	          }
         }
         else {
           HMI_flag.select_flag = true;
@@ -2251,7 +2349,13 @@ void HMI_PauseOrStop() {
         #if ENABLED(POWER_LOSS_RECOVERY)
           if (recovery.enabled) recovery.save(true);
         #endif
-        queue.inject_P(PSTR("M25"));
+		if(ExtPrint_flag==2){
+          queue.inject_P(PSTR("M76")); 
+          queue.inject_P(PSTR("M118 A1 action:pause")); //Pause in Octoprint
+        }
+        else{
+          queue.inject_P(PSTR("M25"));
+        }
       }
       else {
         // cancel pause
@@ -2268,6 +2372,12 @@ void HMI_PauseOrStop() {
         #ifdef ACTION_ON_CANCEL
           host_action_cancel();
         #endif
+		if(ExtPrint_flag==2){
+            queue.inject_P(PSTR("M77")); 
+            queue.inject_P(PSTR("M118 A1 action:cancel")); //Cancel in Octoprint
+            ExtPrint_flag = 5;
+            //Goto_MainMenu();
+        }
         Popup_Window_Home(true);
       }
       else
@@ -2309,6 +2419,41 @@ inline void Draw_Move_Menu() {
   // Draw separators and icons
   LOOP_L_N(i, 3 + ENABLED(HAS_HOTEND)) Draw_Menu_Line(i + 1, ICON_MoveX + i);
 }
+inline void Draw_ZTools_Menu() {
+  Clear_Main_Window();
+ 
+
+  if (HMI_IsChinese) {
+    DWIN_Frame_AreaCopy(1, 256, 1, 271 - 38, 479 - 465, 14, 8);
+    DWIN_Frame_AreaCopy(1, 58, 118, 271 - 165, 479 - 347, LBLX, MBASE(1));
+    DWIN_Frame_AreaCopy(1, 109, 118, 271 - 114, 479 - 347, LBLX, MBASE(2));
+    DWIN_Frame_AreaCopy(1, 160, 118, 271 - 62, 479 - 347, LBLX, MBASE(3));
+    DWIN_Frame_AreaCopy(1, 212, 118, 271 - 18, 479 - 348, LBLX, MBASE(4));
+	DWIN_Frame_AreaCopy(1, 256, 118, 271 - 18, 479 - 348, LBLX, MBASE(5));
+  }
+  else {
+    #ifdef USE_STRING_HEADINGS
+      Draw_Title("Z-Offset Menu"); // TODO: GET_TEXT_F
+    #else
+      DWIN_Frame_AreaCopy(1, 231, 2, 271 - 6, 479 - 467, 14, 8);
+    #endif
+	DWIN_Draw_String(true, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(1), (char*)"Level");
+	Draw_Menu_Icon(1, ICON_PrintSize);
+	DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(2), (char*)"Set closest Z");
+	Draw_Menu_Icon(2, ICON_MoveZ);
+	DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(3), (char*)"Babystep/offset up");
+	Draw_Menu_Icon(3, ICON_SetHome);
+	DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(4), (char*)"Babystep/offset down");
+	Draw_Menu_Icon(4, ICON_SetHome);
+	DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(5), (char*)"Save Offset");
+	Draw_Menu_Icon(5, ICON_WriteEEPROM);
+  }
+
+  Draw_Back_First(select_zbox.now == 0);
+  if (select_zbox.now) Draw_Menu_Cursor(select_zbox.now);
+  LOOP_L_N(i, MROWS) Draw_Menu_Line(i + 1);
+}
+
 
 #include "../../../libs/buzzer.h"
 
@@ -3556,6 +3701,9 @@ void EachMomentUpdate() {
 
   // variable update
   update_variable();
+  
+  // launch tune menu during external launched print
+  external_print_tune();
 
   if (checkkey == PrintProcess) {
     // if print done
@@ -3632,6 +3780,15 @@ void EachMomentUpdate() {
     dwin_zoffset = BABY_Z_VAR;
     select_page.set(0);
     Goto_MainMenu();
+  }
+    //Update Progress for External Print
+  if((ExtPrint_flag==2)&&(checkkey == PrintProcess)) //External Print
+  { 
+    Percentrecord = ExtProgress;
+    remain_time = ExtRemaining;
+    Draw_Print_ProgressElapsed();
+    Draw_Print_ProgressBar();
+    Draw_Print_ProgressRemain();
   }
   #if ENABLED(POWER_LOSS_RECOVERY)
     else if (DWIN_lcd_sd_status && recovery.dwin_flag) { // resume print before power off
@@ -3715,6 +3872,7 @@ void DWIN_HandleScreen() {
     case Move_X:          HMI_Move_X(); break;
     case Move_Y:          HMI_Move_Y(); break;
     case Move_Z:          HMI_Move_Z(); break;
+	case LiveTune:        HMI_live_Zoffset(); break;
     #if HAS_HOTEND
       case Extruder:      HMI_Move_E(); break;
       case ETemp:         HMI_ETemp(); break;
