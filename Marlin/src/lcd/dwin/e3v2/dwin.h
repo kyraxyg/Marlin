@@ -45,13 +45,23 @@ enum processID : uint8_t {
   Prepare,
   Control,
   Leveling,
+  BltouchM,
   PrintProcess,
   AxisMove,
+  ZToolbox,
+  PreHeats,
+  LevelUBL,
+  MenuUBL,
+  Meshoffset,
+  Mlevel,
+  HomeM,
+  LiveTune,
   TemperatureID,
   Motion,
   Info,
   Tune,
   #if HAS_PREHEAT
+    FilamentChange,
     PLAPreheat,
     ABSPreheat,
   #endif
@@ -327,6 +337,7 @@ void HMI_MaxJerkXYZE();
 void HMI_StepXYZE();
 
 void update_variable();
+void external_print_tune(void);
 void DWIN_Draw_Signed_Float(uint8_t size, uint16_t bColor, uint8_t iNum, uint8_t fNum, uint16_t x, uint16_t y, long value);
 
 // SD Card
@@ -353,6 +364,13 @@ void HMI_Temperature(); // Temperature menu
 void HMI_Motion();      // Sports menu
 void HMI_Info();        // Information menu
 void HMI_Tune();        // Adjust the menu
+void HMI_Tune();        // Adjust the menu
+void HMI_MlevelMenu(void);        // Manual Level menu
+void HMI_live_Zoffset(void);      // Live z-offset during prints
+void HMI_select_LevelUBL(void);	  // UBL leveling Menu
+void HMI_Menu_UBL(void);		  // UBL map 
+void HMI_Meshoffset(void);		  // UBL Zoffset adjust
+void HMI_Filament(void);          // Filament change
 
 #if HAS_PREHEAT
   void HMI_PLAPreheatSetting(); // PLA warm-up setting
