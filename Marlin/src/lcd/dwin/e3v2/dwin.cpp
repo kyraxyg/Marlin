@@ -85,6 +85,26 @@
   #include "../../../feature/powerloss.h"
 #endif
 
+/**
+ * M73: Set percentage complete (for display on LCD)
+ *
+ * Example:
+ *   M73 P25 R60; Set progress to 25%, Remaining time to 60 minutes
+ */
+#include "../../../gcode/gcode.h"
+#include "../../../sd/cardreader.h"
+
+uint8_t ExtProgress = 0;
+uint16_t ExtRemaining = 0;
+
+void GcodeSuite::M73() {
+  if (parser.seenval('P')) ExtProgress = parser.value_byte();
+  if (parser.seenval('R')) ExtRemaining = parser.value_ulong();//this is tyipcally converted to seconds, but that makes it too large for a 16bit int and we don't use the seconds
+}
+//END M73 GCODE
+
+
+
 #ifndef MACHINE_SIZE
   #define MACHINE_SIZE STRINGIFY(X_BED_SIZE) "x" STRINGIFY(Y_BED_SIZE) "x" STRINGIFY(Z_MAX_POS)
 #endif
@@ -157,6 +177,25 @@ millis_t dwin_heat_time = 0;
 
 uint8_t checkkey = 0;
 
+//custom variables
+float zOffTrack = 0.0, fPosition = 0.0, noMoreDiff = 0.0, noLessDiff = 0.0, UBLYPOS = 0, UBLXPOS = 0, UBLZPOS = 0, oldZ = 0;
+int Tool = 0, trackY= 0, trackX = 0, mat = 9, tapFlag = 0,beenHomed = 0, holdPrevious = 0, mainFlag = 0, ExtPrint_flag = 0, levelM = 0, even = -1, fillamentstep = 0;;
+
+int last_checkkey = 0;
+
+//conditional variable
+#if HAS_LEVELING
+  #ifdef BLTOUCH
+    int numLines = 7;
+  #else
+    int numLines = 6;
+  #endif
+#else
+  int numLines = 5;
+#endif
+//end of custom variables
+
+
 typedef struct {
   uint8_t now, last;
   void set(uint8_t v) { now = last = v; }
@@ -173,6 +212,12 @@ select_t select_page{0}, select_file{0}, select_print{0}, select_prepare{0}
          , select_acc{0}
          , select_jerk{0}
          , select_step{0}
+         , select_leveling{0}
+		     , select_zbox{0}
+		     , select_pheat{0}
+		     , select_bltm{0}
+		     , select_homeMenu{0}
+		     , select_UBLMenu{0}
          ;
 
 uint8_t index_file     = MROWS,
@@ -185,13 +230,25 @@ bool dwin_abort_flag = false; // Flag to reset feedrate, return to Home
 
 constexpr float default_max_feedrate[]        = DEFAULT_MAX_FEEDRATE;
 constexpr float default_max_acceleration[]    = DEFAULT_MAX_ACCELERATION;
+constexpr float default_axis_steps_per_unit[] = DEFAULT_AXIS_STEPS_PER_UNIT;
 
 #if HAS_CLASSIC_JERK
   constexpr float default_max_jerk[]          = { DEFAULT_XJERK, DEFAULT_YJERK, DEFAULT_ZJERK, DEFAULT_EJERK };
 #endif
 
 uint8_t Percentrecord = 0;
-uint16_t remain_time = 0;
+uint16_t last_Printtime = 0, remain_time = 0;
+float last_temp_hotend_target = 0, last_temp_bed_target = 0;
+float last_temp_hotend_current = 0, last_temp_bed_current = 0;
+uint8_t last_fan_speed = 0;
+uint16_t last_speed = 0;
+float last_X_scale = 0;
+float last_Y_scale = 0;
+float last_Z_scale = 0;
+float last_probe_zoffset = 0;
+bool DWIN_lcd_sd_status = 0;
+bool pause_action_flag = 0;
+
 
 #if ENABLED(PAUSE_HEAT)
   #if HAS_HOTEND
@@ -498,6 +555,15 @@ inline void Draw_Back_First(const bool is_sel=true) {
 }
 
 inline bool Apply_Encoder(const ENCODER_DiffState &encoder_diffState, auto &valref) {
+  if (encoder_diffState == ENCODER_DIFF_CW)
+    valref += EncoderRate.encoderMoveValue;
+  else if (encoder_diffState == ENCODER_DIFF_CCW)
+    valref -= EncoderRate.encoderMoveValue;
+  else if (encoder_diffState == ENCODER_DIFF_ENTER)
+    return true;
+  return false;
+}
+inline bool Apply_Encoder(const ENCODER_DiffState &encoder_diffState, int16_t &valref) {
   if (encoder_diffState == ENCODER_DIFF_CW)
     valref += EncoderRate.encoderMoveValue;
   else if (encoder_diffState == ENCODER_DIFF_CCW)
@@ -1112,6 +1178,7 @@ void Goto_PrintProcess() {
 
   // Copy into filebuf string before entry
   char * const name = card.longest_filename();
+  if (ExtPrint_flag){name="ExtPrint";} //TODO: Get filename from Octoprint
   const int8_t npos = _MAX(0U, DWIN_WIDTH - strlen(name) * MENU_CHR_W) / 2;
   DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, npos, 60, name);
 
